@@ -22,11 +22,16 @@
 #define OZ_TIMER_HEARTBEAT	2
 #define OZ_TIMER_STOP		3
 
-/*
- *External spinlock variable
- */
-extern spinlock_t g_polling_lock;
 
+/* Tasklet Scheduled flag.
+ */
+#define OZ_TASKLET_SCHED_TIMEOUT	0
+#define OZ_TASKLET_SCHED_HEARTBEAT	1
+
+/* Audio packet network priority */
+#define AC_VO   0x106
+
+#define ETH_STRING_LEN		17
 /* Data structure that hold information on a frame for transmisson. This is
  * built when the frame is first transmitted and is used to rebuild the frame
  * if a re-transmission is required.
@@ -44,6 +49,7 @@ struct oz_isoc_stream {
 	u8 ep_num;
 	u8 frame_num;
 	u8 nb_units;
+	u8 ref_count;
 	int size;
 	struct sk_buff *skb;
 	struct oz_hdr *oz_hdr;
@@ -53,8 +59,8 @@ struct oz_farewell {
 	struct list_head link;
 	u8 ep_num;
 	u8 index;
+	u8 report[32];
 	u8 len;
-	u8 report[0];
 };
 
 /* Data structure that holds information on a specific peripheral device (PD).
@@ -64,6 +70,7 @@ struct oz_pd {
 	atomic_t	ref_count;
 	u8		mac_addr[ETH_ALEN];
 	unsigned	state;
+	enum kobject_action	action;
 	unsigned	state_flags;
 	unsigned	send_flags;
 	u16		total_apps;
@@ -74,15 +81,15 @@ struct oz_pd {
 	u8		isoc_sent;
 	u32		last_rx_pkt_num;
 	u32		last_tx_pkt_num;
-	struct timespec last_rx_timestamp;
+	struct timespec	last_rx_timestamp;
 	u32		trigger_pkt_num;
 	unsigned long	pulse_time;
-	unsigned long	pulse_period;
+	ktime_t		pulse_period;
 	unsigned long	presleep;
 	unsigned long	keep_alive;
 	struct oz_elt_buf elt_buff;
-	void		*app_ctx[OZ_NB_APPS];
-	spinlock_t	app_lock[OZ_NB_APPS];
+	void		*app_ctx[OZ_APPID_MAX];
+	spinlock_t	app_lock[OZ_APPID_MAX];
 	int		max_tx_size;
 	u8		mode;
 	u8		ms_per_isoc;
@@ -90,6 +97,8 @@ struct oz_pd {
 	unsigned	max_stream_buffering;
 	int		nb_queued_frames;
 	int		nb_queued_isoc_frames;
+	struct list_head *tx_pool;
+	int		tx_pool_count;
 	spinlock_t	tx_frame_lock;
 	struct list_head *last_sent_frame;
 	struct list_head tx_queue;
@@ -97,12 +106,20 @@ struct oz_pd {
 	spinlock_t	stream_lock;
 	struct list_head stream_list;
 	struct net_device *net_dev;
-	struct hrtimer  heartbeat;
-	struct hrtimer  timeout;
-	u8      timeout_type;
-	struct tasklet_struct   heartbeat_tasklet;
-	struct tasklet_struct   timeout_tasklet;
+	struct hrtimer	heartbeat;
+	struct hrtimer	timeout;
+	u8	timeout_type;
+	struct tasklet_struct	heartbeat_tasklet;
+	struct tasklet_struct	timeout_tasklet;
+	unsigned long tasklet_sched;
 	struct work_struct workitem;
+	struct work_struct uevent_workitem;
+	spinlock_t	pd_destroy_lock;
+	bool	pd_destroy_scheduled;
+	unsigned int reset_retry;
+	u8	up_audio_buf;
+	u8	ref_clock_ep;
+	int	battery_level;
 };
 
 #define OZ_MAX_QUEUED_FRAMES	4
@@ -112,7 +129,7 @@ void oz_pd_destroy(struct oz_pd *pd);
 void oz_pd_get(struct oz_pd *pd);
 void oz_pd_put(struct oz_pd *pd);
 void oz_pd_set_state(struct oz_pd *pd, unsigned state);
-void oz_pd_indicate_farewells(struct oz_pd *pd);
+void oz_pd_indicate_farewells(struct oz_pd *pd, u8 condition);
 int oz_pd_sleep(struct oz_pd *pd);
 void oz_pd_stop(struct oz_pd *pd);
 void oz_pd_heartbeat(struct oz_pd *pd, u16 apps);
@@ -127,8 +144,6 @@ int oz_send_isoc_unit(struct oz_pd *pd, u8 ep_num, const u8 *data, int len);
 void oz_handle_app_elt(struct oz_pd *pd, u8 app_id, struct oz_elt *elt);
 void oz_apps_init(void);
 void oz_apps_term(void);
-
-extern struct kmem_cache *oz_elt_info_cache;
-extern struct kmem_cache *oz_tx_frame_cache;
+void oz_pd_notify_uevent(struct oz_pd *pd);
 
 #endif /* Sentry */

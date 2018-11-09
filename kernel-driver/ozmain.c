@@ -11,12 +11,14 @@
 #include <linux/netdevice.h>
 #include <linux/errno.h>
 #include <linux/ieee80211.h>
-#include "ozdbg.h"
+//#include "ozdbg.h"
 #include "ozpd.h"
 #include "ozproto.h"
 #include "ozcdev.h"
+#include "oztrace.h"
+#include "ozhcd.h"
 
-unsigned int oz_dbg_mask = OZ_DEFAULT_DBG_MASK;
+//unsigned int oz_dbg_mask = OZ_DEFAULT_DBG_MASK;
 
 /*
  * The name of the 802.11 mac device. Empty string is the default value but a
@@ -25,47 +27,118 @@ unsigned int oz_dbg_mask = OZ_DEFAULT_DBG_MASK;
  * netcards. Bindings can be added later using an IOCTL.
  */
 static char *g_net_dev = "";
-module_param(g_net_dev, charp, S_IRUGO);
-MODULE_PARM_DESC(g_net_dev, "The device(s) to bind to; "
-	"'*' means all, '' (empty string; default) means none.");
+int is_registered = 0;
 
 /*
+ * Register ozwpan when a p2p-p2p0-* interface is up.
+ */
+static int ozwpan_register(void)
+{
+	if (!is_registered) {
+		printk("OZWPAN: register\n");
+
+		if (oz_protocol_init(g_net_dev))
+			return -1;
+
+		is_registered = 1;
+		oz_cdev_register();
+		oz_app_enable(OZ_APPID_USB, 1);
+		oz_apps_init();
+		printk(KERN_DEBUG "p->oz_protocol_init = 0x%p\n", oz_protocol_init);
+	}
+
+	return 0;
+}
+
+
+/*
+ * Deregister ozwpan when a p2p-p2p0-* interface is down.
+ */
+static int ozwpan_deregister(void)
+{
+	if (is_registered) {
+		is_registered = 0;
+		printk("OZWPAN: deregister\n");
+		oz_protocol_term();
+		oz_apps_term();
+		oz_cdev_deregister();
+	}
+
+	return 0;
+}
+
+/*
+ * A listener for changes of status of p2p-p2p0-*.
+ */
+static int ozwpan_netdev_event(struct notifier_block *this, unsigned long event, void *ptr)
+{
+	struct net_device *dev = (struct net_device *)ptr;
+
+	printk("OZWPAN: receive %lu from %s\n", event, dev->name);
+	if (strcmp(dev->name, g_net_dev) == 0) {
+		switch (event) {
+		case NETDEV_UP:
+			ozwpan_register();
+			break;
+
+		case NETDEV_GOING_DOWN:
+			ozwpan_deregister();
+			break;
+
+		default:
+			/* ignore */
+			break;
+		}
+
+		return NOTIFY_OK;
+	}
+
+	return NOTIFY_DONE;
+}
+
+
+static struct notifier_block ozwpan_netdev_notifier = {
+	.notifier_call = ozwpan_netdev_event,
+};
+
+/*------------------------------------------------------------------------------
  * Context: process
  */
 static int __init ozwpan_init(void)
 {
-	int err;
+	/* init ozwpan driver */
+	if (ozwpan_register())
+		return -1;
 
-	err = oz_cdev_register();
-	if (err)
-		return err;
-	err = oz_protocol_init(g_net_dev);
-	if (err)
-		goto err_protocol;
-	oz_app_enable(OZ_APPID_USB, 1);
-	oz_apps_init();
+	/* register netdev event */
+	register_netdevice_notifier(&ozwpan_netdev_notifier);
+
 	return 0;
-
-err_protocol:
-	oz_cdev_deregister();
-	return err;
 }
 
-/*
+/*------------------------------------------------------------------------------
  * Context: process
  */
 static void __exit ozwpan_exit(void)
 {
-	oz_protocol_term();
-	oz_apps_term();
-	oz_cdev_deregister();
+	/* deregister ozwpan first before exit */
+	if (is_registered) {
+		ozwpan_deregister();
+	}
+
+	/* unregister netdev event */
+	unregister_netdevice_notifier(&ozwpan_netdev_notifier);
 }
+
+module_param(g_net_dev, charp, S_IRUGO);
+MODULE_PARM_DESC(g_net_dev, "The device(s) to bind to; "
+	"'*' means all, '' (empty string; default) means none.");
 
 module_init(ozwpan_init);
 module_exit(ozwpan_exit);
 
 MODULE_AUTHOR("Chris Kelly");
 MODULE_DESCRIPTION("Ozmo Devices USB over WiFi hcd driver");
-MODULE_VERSION("1.0.13");
+MODULE_VERSION("10.00.01.02.12");
 MODULE_LICENSE("GPL");
 

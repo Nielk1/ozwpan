@@ -14,6 +14,8 @@ KMOD_OPTIONS = CONFIG_USB_WPAN_HCD=m
 #KMOD_OPTIONS +=
 #EXTRA_CFLAGS +=
 
+CFLAGS_oztrace.o = -I$(src)
+
 all:
 	$(MAKE) -C $(KSRC) M=$(KMOD_SRC) $(KMOD_OPTIONS) $(MAKECMDGOALS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)"
 
@@ -33,7 +35,7 @@ reload: unload load
 test: all reload
 
 obj-$(CONFIG_USB_WPAN_HCD) += ozwpan.o
-ozwpan-y := \
+#ozwpan-y := \
         ozmain.o \
         ozpd.o \
         ozusbsvc.o \
@@ -42,6 +44,17 @@ ozwpan-y := \
         ozeltbuf.o \
         ozproto.o \
         ozcdev.o \
-        ozurbparanoia.o
-
+        ozurbparanoia.o \
+        oztrace.o
+ozwpan-y += ozmain.o
+ozwpan-y += ozpd.o
+ozwpan-y += ozusbsvc.o
+ozwpan-y += ozusbsvc1.o
+ozwpan-y += ozhcd.o
+ozwpan-y += ozeltbuf.o
+ozwpan-y += ozproto.o
+ozwpan-y += ozcdev.o
+ozwpan-y += ozkobject.o
+ozwpan-y += ozurbparanoia.o
+ozwpan-y += oztrace.o
 

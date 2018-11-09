@@ -15,6 +15,8 @@ struct oz_usb_ctx {
 	atomic_t ref_count;
 	u8 tx_seq_num;
 	u8 rx_seq_num;
+	u8 stream;
+	u8 ref_stream;
 	struct oz_pd *pd;
 	void *hport;
 	int stopped;
@@ -27,6 +29,6 @@ void oz_usb_stop(struct oz_pd *pd, int pause);
 void oz_usb_rx(struct oz_pd *pd, struct oz_elt *elt);
 int oz_usb_heartbeat(struct oz_pd *pd);
 void oz_usb_farewell(struct oz_pd *pd, u8 ep_num, u8 *data, u8 len);
-
+int oz_usb_get_bus_addr(struct oz_pd *pd);
 #endif /* _OZUSBSVC_H */
 
